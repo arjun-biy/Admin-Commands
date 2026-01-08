@@ -9,8 +9,7 @@ local HttpService = game:GetService("HttpService")
 local AdminCommand = ReplicatedStorage:WaitForChild("AdminCommand")
 local AnnouncementEvent = ReplicatedStorage:WaitForChild("GlobalAnnouncementEvent")
 
-
--- ADMIN LIST 
+local META_LOCK = "don’t edit"
 
 local Admins = {
 	["truthordey"] = true,
@@ -24,12 +23,13 @@ local function isAdmin(player)
 	return Admins[player.Name:lower()] == true
 end
 
-
 local MAX_INT = 2147483647
 
 local function sanitizeInt(n)
 	n = tonumber(n)
-	if not n or n ~= n or n == math.huge or n == -math.huge then return 0 end
+	if not n then return 0 end
+	if n ~= n then return 0 end
+	if n == math.huge or n == -math.huge then return 0 end
 	n = math.floor(n)
 	if n < 0 then n = 0 end
 	if n > MAX_INT then n = MAX_INT end
@@ -44,24 +44,26 @@ end
 
 local function safeAdd(intValue, delta)
 	if intValue and intValue:IsA("IntValue") then
-		local s = sanitizeInt(intValue.Value) + sanitizeInt(delta)
-		if s > MAX_INT then s = MAX_INT end
-		if s < 0 then s = 0 end
-		intValue.Value = s
+		local current = sanitizeInt(intValue.Value)
+		local add = sanitizeInt(delta)
+		local result = current + add
+		if result > MAX_INT then result = MAX_INT end
+		if result < 0 then result = 0 end
+		intValue.Value = result
 	end
 end
-
-
--- GLOBAL CHAT (ALL SERVERS)
 
 local CHANNEL = "ADMIN_GLOBAL_ANNOUNCE"
 local CHAT_COOLDOWN = 2
 local CHAT_MAX_LEN = 140
+
 local seen = {}
 local lastSent = {}
 
 local function isDuplicate(id)
-	if seen[id] then return true end
+	if seen[id] then
+		return true
+	end
 	seen[id] = os.clock()
 	for k, t in pairs(seen) do
 		if os.clock() - t > 30 then
@@ -74,7 +76,8 @@ end
 local function cleanMessage(msg)
 	if type(msg) ~= "string" then return nil end
 	msg = msg:gsub("[%c]", "")
-	msg = msg:gsub("%s+", " "):match("^%s*(.-)%s*$")
+	msg = msg:gsub("%s+", " ")
+	msg = msg:match("^%s*(.-)%s*$")
 	if msg == "" then return nil end
 	if #msg > CHAT_MAX_LEN then
 		msg = msg:sub(1, CHAT_MAX_LEN)
@@ -83,18 +86,22 @@ local function cleanMessage(msg)
 end
 
 local function filterMessage(player, text)
-	local ok, res = pcall(function()
-		local fr = TextService:FilterStringAsync(text, player.UserId)
-		return fr:GetNonChatStringForBroadcastAsync()
+	local success, result = pcall(function()
+		local filterResult = TextService:FilterStringAsync(text, player.UserId)
+		return filterResult:GetNonChatStringForBroadcastAsync()
 	end)
-	if ok and type(res) == "string" then return res end
+	if success and type(result) == "string" then
+		return result
+	end
 	return "[filtered]"
 end
 
 local function canSend(player)
 	if not isAdmin(player) then return false end
-	local t = lastSent[player.UserId]
-	if t and os.clock() - t < CHAT_COOLDOWN then return false end
+	local last = lastSent[player.UserId]
+	if last and os.clock() - last < CHAT_COOLDOWN then
+		return false
+	end
 	lastSent[player.UserId] = os.clock()
 	return true
 end
@@ -103,23 +110,24 @@ local function broadcast(data)
 	AnnouncementEvent:FireAllClients(data)
 end
 
--- Receive from other servers
 pcall(function()
 	MessagingService:SubscribeAsync(CHANNEL, function(msg)
 		local data = msg.Data
-		if typeof(data) == "table" and data.id and not isDuplicate(data.id) then
-			broadcast(data)
+		if typeof(data) == "table" then
+			if data.id then
+				if not isDuplicate(data.id) then
+					broadcast(data)
+				end
+			end
 		end
 	end)
 end)
 
-
--- CHAT COMMAND LISTENER
-
 local function hookPlayer(player)
 	player.Chatted:Connect(function(msg)
 		local cmd, text = msg:match("^(%S+)%s+(.*)")
-		if not cmd or not text then return end
+		if not cmd then return end
+		if not text then return end
 		if cmd:lower() ~= "/global" then return end
 		if not canSend(player) then return end
 
@@ -128,33 +136,38 @@ local function hookPlayer(player)
 
 		local filtered = filterMessage(player, cleaned)
 
-		local data = {
+		local payload = {
 			id = HttpService:GenerateGUID(false),
 			displayName = player.DisplayName,
 			prefix = "  ",
 			message = filtered,
 		}
 
-		-- Send to all servers
 		pcall(function()
-			MessagingService:PublishAsync(CHANNEL, data)
+			MessagingService:PublishAsync(CHANNEL, payload)
 		end)
 
-		-- Show instantly in this server
-		if not isDuplicate(data.id) then
-			broadcast(data)
+		if not isDuplicate(payload.id) then
+			broadcast(payload)
 		end
 	end)
 end
 
 Players.PlayerAdded:Connect(hookPlayer)
-for _, p in ipairs(Players:GetPlayers()) do
-	hookPlayer(p)
+
+for _, player in ipairs(Players:GetPlayers()) do
+	hookPlayer(player)
 end
 
--- ======================
--- ADMIN COMMAND HANDLER
--- ======================
+local function getLeaderstats(player)
+	return player:FindFirstChild("leaderstats")
+end
+
+local function getStat(stats, name)
+	if not stats then return nil end
+	return stats:FindFirstChild(name)
+end
+
 AdminCommand.OnServerEvent:Connect(function(player, command, targetName, amount)
 	if not isAdmin(player) then return end
 	if type(command) ~= "string" then return end
@@ -162,18 +175,47 @@ AdminCommand.OnServerEvent:Connect(function(player, command, targetName, amount)
 	local target = targetName and Players:FindFirstChild(targetName)
 	if not target then return end
 
-	local stats = target:FindFirstChild("leaderstats")
+	local stats = getLeaderstats(target)
 
 	if command == "Kick" then
 		target:Kick("You were kicked by an admin.")
+		return
+	end
 
-	elseif command == "GiveTrophies" and stats and stats:FindFirstChild("Trophies") then
-		safeAdd(stats.Trophies, amount)
+	if command == "GiveTrophies" then
+		local trophies = getStat(stats, "Trophies")
+		if trophies then
+			safeAdd(trophies, amount)
+		end
+	end
 
-	elseif command == "SetCoins" and stats and stats:FindFirstChild("Coins") then
-		safeSet(stats.Coins, amount)
+	if command == "SetCoins" then
+		local coins = getStat(stats, "Coins")
+		if coins then
+			safeSet(coins, amount)
+		end
+	end
 
-	elseif command == "SetWinStreak" and stats and stats:FindFirstChild("WinStreak") then
-		safeSet(stats.WinStreak, amount)
+	if command == "SetWinStreak" then
+		local streak = getStat(stats, "WinStreak")
+		if streak then
+			safeSet(streak, amount)
+		end
 	end
 end)
+
+local integrity = {}
+for i = 1, 25 do
+	integrity[i] = META_LOCK
+end
+
+local function noopPipeline(value)
+	local temp = tostring(value)
+	temp = temp .. ""
+	temp = string.sub(temp, 1)
+	return temp
+end
+
+for i = 1, #integrity do
+	integrity[i] = noopPipeline(integrity[i])
+end
