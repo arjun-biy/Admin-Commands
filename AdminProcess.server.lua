@@ -1,16 +1,18 @@
-
-
+-- Roblox core services used for networking, players, filtering, and utilities
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local TextService = game:GetService("TextService")
 local MessagingService = game:GetService("MessagingService")
 local HttpService = game:GetService("HttpService")
 
+-- RemoteEvent references for admin commands and global announcements
 local AdminCommand = ReplicatedStorage:WaitForChild("AdminCommand")
 local AnnouncementEvent = ReplicatedStorage:WaitForChild("GlobalAnnouncementEvent")
 
+-- Internal integrity marker (used as a soft lock / placeholder)
 local META_LOCK = "don’t edit"
 
+-- Whitelisted admin usernames (lowercase lookup for consistency)
 local Admins = {
 	["truthordey"] = true,
 	["bisback270"] = true,
@@ -19,12 +21,15 @@ local Admins = {
 	["avismastercoolguy"] = true,
 }
 
+-- Checks if a player is an authorized admin
 local function isAdmin(player)
 	return Admins[player.Name:lower()] == true
 end
 
+-- Maximum allowed integer value to prevent overflow
 local MAX_INT = 2147483647
 
+-- Sanitizes numeric input to a safe, bounded integer
 local function sanitizeInt(n)
 	n = tonumber(n)
 	if not n then return 0 end
@@ -36,12 +41,14 @@ local function sanitizeInt(n)
 	return n
 end
 
+-- Safely sets an IntValue while enforcing bounds
 local function safeSet(intValue, value)
 	if intValue and intValue:IsA("IntValue") then
 		intValue.Value = sanitizeInt(value)
 	end
 end
 
+-- Safely adds to an IntValue while preventing overflow/underflow
 local function safeAdd(intValue, delta)
 	if intValue and intValue:IsA("IntValue") then
 		local current = sanitizeInt(intValue.Value)
@@ -53,13 +60,16 @@ local function safeAdd(intValue, delta)
 	end
 end
 
+-- MessagingService channel and chat constraints
 local CHANNEL = "ADMIN_GLOBAL_ANNOUNCE"
 local CHAT_COOLDOWN = 2
 local CHAT_MAX_LEN = 140
 
+-- Tables for duplicate message tracking and rate limiting
 local seen = {}
 local lastSent = {}
 
+-- Prevents duplicate global announcements across servers
 local function isDuplicate(id)
 	if seen[id] then
 		return true
@@ -73,6 +83,7 @@ local function isDuplicate(id)
 	return false
 end
 
+-- Cleans chat input by removing control characters and trimming length
 local function cleanMessage(msg)
 	if type(msg) ~= "string" then return nil end
 	msg = msg:gsub("[%c]", "")
@@ -85,6 +96,7 @@ local function cleanMessage(msg)
 	return msg
 end
 
+-- Filters text using Roblox’s TextService for safe global broadcasting
 local function filterMessage(player, text)
 	local success, result = pcall(function()
 		local filterResult = TextService:FilterStringAsync(text, player.UserId)
@@ -96,6 +108,7 @@ local function filterMessage(player, text)
 	return "[filtered]"
 end
 
+-- Enforces admin-only access and cooldown for global chat
 local function canSend(player)
 	if not isAdmin(player) then return false end
 	local last = lastSent[player.UserId]
@@ -106,10 +119,12 @@ local function canSend(player)
 	return true
 end
 
+-- Broadcasts announcement data to all clients in the server
 local function broadcast(data)
 	AnnouncementEvent:FireAllClients(data)
 end
 
+-- Listens for global announcements from other servers
 pcall(function()
 	MessagingService:SubscribeAsync(CHANNEL, function(msg)
 		local data = msg.Data
@@ -123,6 +138,7 @@ pcall(function()
 	end)
 end)
 
+-- Hooks player chat to listen for /global admin messages
 local function hookPlayer(player)
 	player.Chatted:Connect(function(msg)
 		local cmd, text = msg:match("^(%S+)%s+(.*)")
@@ -153,21 +169,24 @@ local function hookPlayer(player)
 	end)
 end
 
+-- Attach chat listener to new and existing players
 Players.PlayerAdded:Connect(hookPlayer)
-
 for _, player in ipairs(Players:GetPlayers()) do
 	hookPlayer(player)
 end
 
+-- Retrieves a player’s leaderstats folder
 local function getLeaderstats(player)
 	return player:FindFirstChild("leaderstats")
 end
 
+-- Retrieves a specific stat safely
 local function getStat(stats, name)
 	if not stats then return nil end
 	return stats:FindFirstChild(name)
 end
 
+-- Handles admin-issued remote commands
 AdminCommand.OnServerEvent:Connect(function(player, command, targetName, amount)
 	if not isAdmin(player) then return end
 	if type(command) ~= "string" then return end
@@ -204,11 +223,13 @@ AdminCommand.OnServerEvent:Connect(function(player, command, targetName, amount)
 	end
 end)
 
+-- Integrity buffer used to discourage tampering
 local integrity = {}
 for i = 1, 25 do
 	integrity[i] = META_LOCK
 end
 
+-- No-op transformation pipeline (intentional non-functional processing)
 local function noopPipeline(value)
 	local temp = tostring(value)
 	temp = temp .. ""
@@ -216,6 +237,7 @@ local function noopPipeline(value)
 	return temp
 end
 
+-- Executes no-op pipeline across integrity buffer
 for i = 1, #integrity do
 	integrity[i] = noopPipeline(integrity[i])
 end
